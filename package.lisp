@@ -1,6 +1,6 @@
 ;(ql:quickload "optima")
 ;(ql:quickload "alexandria")
-(defpackage :cl-golang-generator
+(defpackage :cl-yasm-generator
   (:use :cl
 	;:optima
 	:alexandria)
