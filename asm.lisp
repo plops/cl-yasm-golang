@@ -353,7 +353,13 @@ entry return-values contains a list of return values"
 		     (format s "~&~a~{~&~a~}"
 			     (emit (cadr code))
 			     (mapcar #'(lambda (x) (emit `(indent ,x) 0)) (cddr code)))))
+		(global (destructuring-bind (&rest vars) (cdr code)
+			  (format nil "~{global ~a~%~}" vars)))
+		(tag (let ((name (car (cdr code))))
+		       (format nil "~a:~%" name)))
 		(string (format nil "\"~a\"" (cadr code)))
+		(section (destructuring-bind (name &rest body) (cdr code)
+			     (format nil "section ~a~%~a" name (emit `(do0 ,@body)))))
 		(data
 		 ;; var{8,16,32,64,128}, float128
 		 (with-output-to-string (s)
@@ -362,7 +368,7 @@ entry return-values contains a list of return values"
 			       (ecase type
 				 (var8 "db")
 				 (var16 "dw")
-				 (var32 "dq")
+				 (var32 "dd")
 				 (var64 "dq")
 				 (var128 "ddq")
 				 (float128 "dt"))
@@ -390,10 +396,14 @@ entry return-values contains a list of return values"
 	  "")))
   (defparameter *bla*
     (emit-asm :code `(do0
-		      (data (bVar var8 10)
-			   (cVar var8 (string H))
-			   (strng var8 (string "Hello world"))
-			   (arr var32 (tuple 100 200 300))))))
+		      (section .data
+		       (data (bVar var8 10)
+			     (cVar var8 (string H))
+			     (strng var8 (string "Hello world"))
+			     (arr var32 (tuple 100 200 300))))
+		      (section .text
+			       (global _start)
+			       (tag _start)))))
   (with-output-to-file (s "/dev/shm/o.s" ; :direction :output
 			  :if-exists :supersede
 			  :if-does-not-exist :create)
