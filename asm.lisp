@@ -330,6 +330,7 @@ entry return-values contains a list of return values"
 	eax ebx ecx edx esi edi ebp esp
 	ax bx cx dx si di bp sp
 	al bl cl dl sil dil bpl spl spl))
+  (defparameter *env* nil)
   (defun print-sufficient-digits-f64 (f)
   "print a double floating point number as a string with a given nr. of
   digits. parse it again and increase nr. of digits until the same bit
@@ -345,6 +346,7 @@ entry return-values contains a list of return values"
   (defun emit-asm (&key code (str nil)  (level 0) (env nil))
     (flet ((emit (code &key (dl 0) env)
 	     "change the indentation level. this is used in do"
+	     (setf *env* (append *env* env))
 	     (emit-asm :code code :level (+ dl level) :env env)))
       (if code
 	  (if (listp code)
@@ -403,10 +405,17 @@ entry return-values contains a list of return values"
 			   (format nil "~a~a" name
 				   (emit `(paren ,@args))))))))
 	      (cond
-		
 		((or (symbolp code)
 		     (stringp code)) ;; print variable
-		 (format nil "~a" code))
+		 (if (member (intern (string-upcase (format nil "~a" code)))
+			     *register*)
+		     (format nil "~a" code)
+		     (let ((type (cadr (assoc code *env*))))
+		      (if type
+			  (format nil "~a[~a]" (ecase type
+						 (var64 'qword))
+				  code)
+			  (format nil "~a"  code)))))
 		((numberp code) ;; print constants
 		 (cond ((integerp code) (format str "~a" code))
 		       ((floatp code) ;; FIXME arbitrary precision?
@@ -414,7 +423,6 @@ entry return-values contains a list of return values"
 	  "")))
   (defparameter *bla*
     (emit-asm :code `(do0
-		      (tuple ,@*register*)
 		      (section
 		       .data
 		       (data ((bVar var8 10)
