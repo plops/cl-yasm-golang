@@ -446,3 +446,6 @@ entry return-values contains a list of return values"
 			  :if-exists :supersede
 			  :if-does-not-exist :create)
     (format s *bla*)))
+
+;;yasm -g dwarf2 -f elf64 o.s -l o.lst
+
