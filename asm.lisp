@@ -320,6 +320,16 @@ entry return-values contains a list of return values"
 
 
 (progn
+  (defparameter *register*
+    `(,@(loop for i upto 12 collect (intern (string-upcase (format nil "xmm~a" i))))
+	,@(loop for i from 8 upto 15 collect (intern (string-upcase (format nil "r~a" i))))
+	,@(loop for i from 8 upto 15 collect (intern (string-upcase (format nil "r~ad" i))))
+	,@(loop for i from 8 upto 15 collect (intern (string-upcase (format nil "r~aw" i))))
+	,@(loop for i from 8 upto 15 collect (intern (string-upcase (format nil "r~ab" i))))
+	rax rbx rcx rdx rsi rdi rbp rsp
+	eax ebx ecx edx esi edi ebp esp
+	ax bx cx dx si di bp sp
+	al bl cl dl sil dil bpl spl spl))
   (defun print-sufficient-digits-f64 (f)
   "print a double floating point number as a string with a given nr. of
   digits. parse it again and increase nr. of digits until the same bit
@@ -332,10 +342,10 @@ entry return-values contains a list of return values"
 		       (read-from-string s)))
 	       1d-12))
    (substitute #\e #\d s)))
-  (defun emit-asm (&key code (str nil)  (level 0))
-    (flet ((emit (code &optional (dl 0))
+  (defun emit-asm (&key code (str nil)  (level 0) (env nil))
+    (flet ((emit (code &key (dl 0) env)
 	     "change the indentation level. this is used in do"
-	     (emit-asm :code code :level (+ dl level))))
+	     (emit-asm :code code :level (+ dl level) :env env)))
       (if code
 	  (if (listp code)
 	      (case (car code)
@@ -345,34 +355,41 @@ entry return-values contains a list of return values"
 		 ;; indent form
 		 (format nil "~{~a~}~a"
 				;; print indentation characters
-			      (loop for i below level collect "    ")
-			      (emit (cadr code))))
+			 (loop for i below level collect "    ")
+			 (emit (cadr code))))
 		(do0 (with-output-to-string (s)
 		       ;; do0 {form}*
 		       ;; write each form into a newline, keep current indentation level
 		     (format s "~&~a~{~&~a~}"
 			     (emit (cadr code))
-			     (mapcar #'(lambda (x) (emit `(indent ,x) 0)) (cddr code)))))
+			     (mapcar #'(lambda (x) (emit `(indent ,x) :dl 0)) (cddr code)))))
 		(global (destructuring-bind (&rest vars) (cdr code)
 			  (format nil "~{global ~a~%~}" vars)))
 		(tag (let ((name (car (cdr code))))
 		       (format nil "~a:~%" name)))
 		(string (format nil "\"~a\"" (cadr code)))
 		(section (destructuring-bind (name &rest body) (cdr code)
-			     (format nil "section ~a~%~a" name (emit `(do0 ,@body)))))
+			   (format nil "section ~a~%~a" name (emit `(do0 ,@body)))))
+		(mov (destructuring-bind (dst src) (cdr code)
+		       (format nil "mov ~a, ~a" (emit dst) (emit src))))
+		(add (destructuring-bind (dst src) (cdr code)
+		       (format nil "add ~a, ~a" (emit dst) (emit src))))
 		(data
 		 ;; var{8,16,32,64,128}, float128
-		 (with-output-to-string (s)
-		  (loop for (name type val) in (cdr code) do
-		       (format s "~a ~a ~a~%" name
-			       (ecase type
-				 (var8 "db")
-				 (var16 "dw")
-				 (var32 "dd")
-				 (var64 "dq")
-				 (var128 "ddq")
-				 (float128 "dt"))
-			       (emit val)))))
+		 (destructuring-bind (decls &rest body) (cdr code)
+		   (with-output-to-string (s)
+		     (loop for (name type val) in decls do
+			  (push `(,name ,type) env)
+			 (format s "~a ~a ~a~%" name
+				 (ecase type
+				   (var8 "db")
+				   (var16 "dw")
+				   (var32 "dd")
+				   (var64 "dq")
+				   (var128 "ddq")
+				   (float128 "dt"))
+				 (emit val)))
+		    (format s "~a" (emit `(do0 ,@body) :env env)))))
 		(t (destructuring-bind (name &rest args) code
 		     (if (listp name)
 		       ;; lambda call and similar complex constructs
@@ -386,6 +403,7 @@ entry return-values contains a list of return values"
 			   (format nil "~a~a" name
 				   (emit `(paren ,@args))))))))
 	      (cond
+		
 		((or (symbolp code)
 		     (stringp code)) ;; print variable
 		 (format nil "~a" code))
@@ -396,14 +414,26 @@ entry return-values contains a list of return values"
 	  "")))
   (defparameter *bla*
     (emit-asm :code `(do0
-		      (section .data
-		       (data (bVar var8 10)
-			     (cVar var8 (string H))
-			     (strng var8 (string "Hello world"))
-			     (arr var32 (tuple 100 200 300))))
-		      (section .text
-			       (global _start)
-			       (tag _start)))))
+		      (tuple ,@*register*)
+		      (section
+		       .data
+		       (data ((bVar var8 10)
+			      (cVar var8 (string H))
+			      (strng var8 (string "Hello world"))
+			      (arr var32 (tuple 100 200 300))
+			      (q1 var64 17000000)
+			      (q2 var64 9000001)
+			      (qres var64 0))
+			     (section .text
+				      (global _start)
+				      (tag _start)
+				      (mov rax q1)
+				      (add rax q2)
+				      (mov qres rax)
+				      (tag last)
+				      (mov rax 60)
+				      (mov rdi 0)
+				      syscall))))))
   (with-output-to-file (s "/dev/shm/o.s" ; :direction :output
 			  :if-exists :supersede
 			  :if-does-not-exist :create)
